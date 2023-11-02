@@ -70,11 +70,15 @@ class LidarOdometry : public rclcpp::Node {
   Eigen::Quaterniond q_w_curr_{1.0, 0.0, 0.0, 0.0};
   Eigen::Vector3d t_w_curr_{0.0, 0.0, 0.0};
 
+  // only save less sharp
   pcl::KdTreeFLANN<PointType> last_corner_kd_tree_{};
+  // only save less flat
   pcl::KdTreeFLANN<PointType> last_surf_kd_tree_{};
 
   std::shared_ptr<pcl::PointCloud<PointType>> last_corner_point_cloud_{std::make_shared<pcl::PointCloud<PointType>>()};
   std::shared_ptr<pcl::PointCloud<PointType>> last_surf_point_cloud_{std::make_shared<pcl::PointCloud<PointType>>()};
+
+  nav_msgs::msg::Path lidar_path_{};
 
  private:
   void ProcessOdom();

@@ -97,6 +97,8 @@ void LidarOdometry::ProcessOdom() {
     std::shared_ptr<sensor_msgs::msg::PointCloud2> surf_flat_points_msg{nullptr};
     std::shared_ptr<sensor_msgs::msg::PointCloud2> surf_less_flat_points_msg{nullptr};
 
+    int64_t curr_lidar_points_utc_timestamp = 0;
+
     {
       std::unique_lock<std::mutex> lk(mutex_);
 
@@ -127,6 +129,8 @@ void LidarOdometry::ProcessOdom() {
       auto surf_less_flat_timestamp = static_cast<int64_t>(surf_less_flat_points_cloud_queue_.front()->header.stamp.sec) * 1000000000UL +
                                       surf_less_flat_points_cloud_queue_.front()->header.stamp.nanosec;
 
+      curr_lidar_points_utc_timestamp = corner_sharp_timestamp;
+
       // AreEqual ?
       if (AreEqual(corner_sharp_timestamp, corner_less_sharp_timestamp, surf_flat_timestamp, surf_less_flat_timestamp)) {
         corner_sharp_points_msg = corner_sharp_points_cloud_queue_.front();
@@ -153,6 +157,7 @@ void LidarOdometry::ProcessOdom() {
           surf_less_flat_points_cloud_queue_.pop();
         }
       }
+      continue;
     }
 
     assert(corner_sharp_points_msg != nullptr);
@@ -406,6 +411,36 @@ void LidarOdometry::ProcessOdom() {
     TicToc pub_tic_tok;
 
     // TODO
+    // publish odometry
+    nav_msgs::msg::Odometry odometry;
+    odometry.header.frame_id = "init";
+    odometry.child_frame_id = "lidar";
+    odometry.header.stamp.sec = curr_lidar_points_utc_timestamp / 1000000000UL;
+    odometry.header.stamp.nanosec = curr_lidar_points_utc_timestamp % 1000000000UL;
+    odometry.pose.pose.orientation.x = q_w_curr_.x();
+    odometry.pose.pose.orientation.y = q_w_curr_.y();
+    odometry.pose.pose.orientation.z = q_w_curr_.z();
+    odometry.pose.pose.orientation.w = q_w_curr_.w();
+    odometry.pose.pose.position.x = t_w_curr_.x();
+    odometry.pose.pose.position.y = t_w_curr_.y();
+    odometry.pose.pose.position.z = t_w_curr_.z();
+    lidar_odom_to_init_pub_ptr_->publish(odometry);
+
+    // publish geometry
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header = odometry.header;
+    pose.pose = odometry.pose.pose;
+    lidar_path_.poses.push_back(pose);
+    lidar_path_.header.frame_id = "lidar";
+    lidar_odom_path_pub_ptr_->publish(lidar_path_);
+
+    // kt tree
+    last_corner_kd_tree_.setInputCloud(pcl_corner_less_sharp_points_ptr);
+    last_surf_kd_tree_.setInputCloud(pcl_surl_less_points_ptr);
+
+    // save last points
+    last_corner_point_cloud_ = pcl_corner_less_sharp_points_ptr;
+    last_surf_point_cloud_ = pcl_surl_less_points_ptr;
 
     RCLCPP_INFO(this->get_logger(), "publish cost %.3f ms", pub_tic_tok.toc() / 1e6);
   }
