@@ -42,6 +42,8 @@ class LidarOdometry : public rclcpp::Node {
   virtual ~LidarOdometry() = default;
 
  private:
+  std::mutex mutex_;
+  std::condition_variable cond_var_;
   std::queue<std::shared_ptr<sensor_msgs::msg::PointCloud2>> corner_sharp_points_cloud_queue_{};
   std::queue<std::shared_ptr<sensor_msgs::msg::PointCloud2>> corner_less_sharp_points_cloud_queue_{};
   std::queue<std::shared_ptr<sensor_msgs::msg::PointCloud2>> surf_flat_points_cloud_queue_{};
@@ -52,16 +54,15 @@ class LidarOdometry : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr surf_flat_points_sub_ptr_{nullptr};
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr surf_less_flat_points_sub_ptr_{nullptr};
 
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr corner_points_cloud_last_pub_ptr_{nullptr};
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr surf_points_cloud_last_pub_ptr_{nullptr};
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr corner_points_cloud_low_freq_pub_ptr_{nullptr};
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr surf_points_cloud_low_freq_pub_ptr_{nullptr};
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr lidar_odom_to_init_pub_ptr_{nullptr};
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr lidar_odom_path_pub_ptr_{nullptr};
 
   std::string node_namespace_{};
 
   std::atomic_bool is_running_{false};
-  std::mutex mutex_;
-  std::condition_variable cond_var_;
+
   std::unique_ptr<std::thread> process_odom_thread_ptr_{nullptr};
 
   std::array<double, 4> quaternion_{0, 0, 0, 1};

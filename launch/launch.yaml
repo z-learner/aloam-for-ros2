@@ -1,0 +1,22 @@
+
+launch:
+
+- node:
+    pkg: "aloam-for-ros2"
+    exec: "kitti_helper_node"
+    name: "kitti_helper_node"
+    param:
+    -
+      name: "dataset_path"
+      value: "/root/Code/kitti_dataset/raw_data/2011_10_03_drive_0034_sync/2011_10_03/2011_10_03_drive_0034_sync/"
+  
+- node:
+    pkg: "aloam-for-ros2"
+    exec: "scan_registration_node"
+    name: "scan_registration_node"
+
+
+- node:
+    pkg: "aloam-for-ros2"
+    exec: "lidar_odometry_node"
+    name: "lidar_odometry_node"

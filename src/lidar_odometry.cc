@@ -66,9 +66,10 @@ LidarOdometry::LidarOdometry(const std::string& node_namespace) : Node("lidar_od
                                                                                             });
 
   // pub
-  corner_points_cloud_last_pub_ptr_ =
-      this->create_publisher<sensor_msgs::msg::PointCloud2>(fmt::format("/{}/corner_points_last", node_namespace), 10);
-  surf_points_cloud_last_pub_ptr_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(fmt::format("/{}/surf_points_last", node_namespace), 10);
+  corner_points_cloud_low_freq_pub_ptr_ =
+      this->create_publisher<sensor_msgs::msg::PointCloud2>(fmt::format("/{}/corner_points_low_freq", node_namespace), 10);
+  surf_points_cloud_low_freq_pub_ptr_ =
+      this->create_publisher<sensor_msgs::msg::PointCloud2>(fmt::format("/{}/surf_points_low_freq", node_namespace), 10);
   lidar_odom_to_init_pub_ptr_ = this->create_publisher<nav_msgs::msg::Odometry>(fmt::format("/{}/lidar_odom_to_init", node_namespace), 10);
   lidar_odom_path_pub_ptr_ = this->create_publisher<nav_msgs::msg::Path>(fmt::format("/{}/lidar_odom_path", node_namespace), 10);
 
@@ -102,17 +103,23 @@ void LidarOdometry::ProcessOdom() {
     {
       std::unique_lock<std::mutex> lk(mutex_);
 
-      auto success = cond_var_.wait_for(lk, 100ms, [this]() {
+      cond_var_.wait_for(lk, 3s, [this]() {
         return !corner_sharp_points_cloud_queue_.empty() && !corner_less_sharp_points_cloud_queue_.empty() &&
                !surf_flat_points_cloud_queue_.empty() && !surf_less_flat_points_cloud_queue_.empty();
       });
 
       if (!is_running_.load()) {
         RCLCPP_INFO(this->get_logger(), "Lidar Odomtry Exit");
+        break;
       }
 
-      if (!success) {
-        RCLCPP_WARN(this->get_logger(), "No data in 100ms, this is unnormal!!");
+      if (corner_sharp_points_cloud_queue_.empty() || corner_less_sharp_points_cloud_queue_.empty() || surf_flat_points_cloud_queue_.empty() ||
+          surf_less_flat_points_cloud_queue_.empty()) {
+        RCLCPP_WARN(this->get_logger(), "No data in 3s, this is unnormal!!");
+        RCLCPP_WARN(this->get_logger(), "corner_sharp_points_cloud_queue_ size :%d", corner_sharp_points_cloud_queue_.size());
+        RCLCPP_WARN(this->get_logger(), "corner_less_sharp_points_cloud_queue_ size :%d", corner_less_sharp_points_cloud_queue_.size());
+        RCLCPP_WARN(this->get_logger(), "surf_flat_points_cloud_queue_ size :%d", surf_flat_points_cloud_queue_.size());
+        RCLCPP_WARN(this->get_logger(), "surf_less_flat_points_cloud_queue_ size :%d", surf_less_flat_points_cloud_queue_.size());
         continue;
       }
 
@@ -142,6 +149,11 @@ void LidarOdometry::ProcessOdom() {
         surf_less_flat_points_msg = surf_less_flat_points_cloud_queue_.front();
         surf_less_flat_points_cloud_queue_.pop();
       } else {
+        RCLCPP_WARN(this->get_logger(), "four points frames tiem is not sync");
+        RCLCPP_WARN(this->get_logger(), "corner_sharp_timestamp      : %.3f", corner_sharp_timestamp / 1e9);
+        RCLCPP_WARN(this->get_logger(), "corner_less_sharp_timestamp : %.3f", corner_less_sharp_timestamp / 1e9);
+        RCLCPP_WARN(this->get_logger(), "surf_flat_timestamp         : %.3f", surf_flat_timestamp / 1e9);
+        RCLCPP_WARN(this->get_logger(), "surf_less_flat_timestamp    : %.3f", surf_less_flat_timestamp / 1e9);
         // find max
         auto max_timestamp = MaxOf(corner_sharp_timestamp, corner_less_sharp_timestamp, surf_flat_timestamp, surf_less_flat_timestamp);
         if (corner_sharp_timestamp < max_timestamp) {
@@ -156,9 +168,11 @@ void LidarOdometry::ProcessOdom() {
         if (surf_less_flat_timestamp < max_timestamp) {
           surf_less_flat_points_cloud_queue_.pop();
         }
+        continue;
       }
-      continue;
     }
+
+    RCLCPP_INFO(this->get_logger(), "Start Run Once");
 
     assert(corner_sharp_points_msg != nullptr);
     assert(corner_less_sharp_points_msg != nullptr);
@@ -189,6 +203,10 @@ void LidarOdometry::ProcessOdom() {
 
       size_t corner_sharp_points_number = pcl_corner_sharp_points_ptr->points.size();
       size_t surf_flat_points_number = pcl_surf_flat_points_ptr->points.size();
+
+      RCLCPP_INFO(this->get_logger(), "corner_sharp_points_number : %d", corner_sharp_points_number);
+      RCLCPP_INFO(this->get_logger(), "surf_flat_points_number : %d", surf_flat_points_number);
+
       TicToc tic_tok;
       // Point-to-line and point-to-plane ICP, iterated 2 times
       for (size_t opti_count = 0; opti_count < 2; ++opti_count) {
@@ -426,6 +444,11 @@ void LidarOdometry::ProcessOdom() {
     odometry.pose.pose.position.z = t_w_curr_.z();
     lidar_odom_to_init_pub_ptr_->publish(odometry);
 
+    RCLCPP_INFO(this->get_logger(), "odometry orientation : %.3f, %.3f, %.3f, %.3f", odometry.pose.pose.orientation.x,
+                odometry.pose.pose.orientation.y, odometry.pose.pose.orientation.z, odometry.pose.pose.orientation.w);
+    RCLCPP_INFO(this->get_logger(), "odometry position : %.3f, %.3f, %.3f", odometry.pose.pose.position.x, odometry.pose.pose.position.y,
+                odometry.pose.pose.position.z);
+
     // publish geometry
     geometry_msgs::msg::PoseStamped pose;
     pose.header = odometry.header;
@@ -441,6 +464,24 @@ void LidarOdometry::ProcessOdom() {
     // save last points
     last_corner_point_cloud_ = pcl_corner_less_sharp_points_ptr;
     last_surf_point_cloud_ = pcl_surl_less_points_ptr;
+
+    // publish points
+    static size_t points_frame_count = 0;
+    if (points_frame_count++ % 5 == 0) {
+      // publish
+      sensor_msgs::msg::PointCloud2 ros2_tmp_msg;
+      pcl::toROSMsg(*last_corner_point_cloud_, ros2_tmp_msg);
+      ros2_tmp_msg.header.frame_id = "lidar";
+      ros2_tmp_msg.header.stamp.sec = last_corner_point_cloud_->header.stamp / 1000000;
+      ros2_tmp_msg.header.stamp.nanosec = last_corner_point_cloud_->header.stamp % 1000000 * 1000;
+      corner_points_cloud_low_freq_pub_ptr_->publish(ros2_tmp_msg);
+
+      pcl::toROSMsg(*last_surf_point_cloud_, ros2_tmp_msg);
+      ros2_tmp_msg.header.frame_id = "lidar";
+      ros2_tmp_msg.header.stamp.sec = last_surf_point_cloud_->header.stamp / 1000000;
+      ros2_tmp_msg.header.stamp.nanosec = last_surf_point_cloud_->header.stamp % 1000000 * 1000;
+      surf_points_cloud_low_freq_pub_ptr_->publish(ros2_tmp_msg);
+    }
 
     RCLCPP_INFO(this->get_logger(), "publish cost %.3f ms", pub_tic_tok.toc() / 1e6);
   }

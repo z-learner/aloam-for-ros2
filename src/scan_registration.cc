@@ -10,19 +10,19 @@ using std::placeholders::_1;
 
 using namespace std::chrono_literals;
 
-void ScanRegistration::RemoveClosePoint(pcl::PointCloud<PointType>::Ptr points_cloud_ptr, float min_range) {
+void ScanRegistration::RemoveClosePoint(std::shared_ptr<pcl::PointCloud<PointType>> points_cloud_ptr, float min_range) {
   size_t count = 0;
   size_t total_points_cloud_size = points_cloud_ptr->size();
   auto min_range_pow_2 = min_range * min_range;
   for (size_t index = 0; index < points_cloud_ptr->size(); ++index) {
-    float range_pow_2 = std::pow(points_cloud_ptr->data()[index].x, 2) + std::pow(points_cloud_ptr->data()[index].y, 2) +
-                        std::pow(points_cloud_ptr->data()[index].z, 2);
+    float range_pow_2 = std::pow(points_cloud_ptr->points[index].x, 2) + std::pow(points_cloud_ptr->points[index].y, 2) +
+                        std::pow(points_cloud_ptr->points[index].z, 2);
 
     if (range_pow_2 < min_range_pow_2) {
       continue;
     }
 
-    points_cloud_ptr->data()[count++] = points_cloud_ptr->data()[index];
+    points_cloud_ptr->points[count++] = points_cloud_ptr->points[index];
   }
 
   // pcl header.stamp is us
@@ -86,7 +86,7 @@ void ScanRegistration::subscription_call_back(const sensor_msgs::msg::PointCloud
   std::vector<pcl::PointCloud<PointType>> scan_line_points_cloud(scan_line_number_);
 
   for (size_t index = 0; index < cloud_points_size; ++index) {
-    auto point = pcl_points_cloud_ptr->data()[index];
+    auto point = pcl_points_cloud_ptr->points[index];
     auto scan_line_id = point.ring;
     assert(scan_line_id < scan_line_number_);
     scan_line_points_cloud[scan_line_id].push_back(point);
@@ -173,11 +173,11 @@ void ScanRegistration::subscription_call_back(const sensor_msgs::msg::PointCloud
           ++sharp_packed_number;
           if (sharp_packed_number <= 2) {
             cloud_points_label_[point_index] = PointLabel::Shrap;
-            corner_points_cloud_sharp->push_back(points_cloud_order->data()[point_index]);
-            corner_points_cloud_less_sharp->push_back(points_cloud_order->data()[point_index]);
+            corner_points_cloud_sharp->push_back(points_cloud_order->points[point_index]);
+            corner_points_cloud_less_sharp->push_back(points_cloud_order->points[point_index]);
           } else if (sharp_packed_number <= 20) {
             cloud_points_label_[point_index] = PointLabel::LessSharp;
-            corner_points_cloud_less_sharp->push_back(points_cloud_order->data()[point_index]);
+            corner_points_cloud_less_sharp->push_back(points_cloud_order->points[point_index]);
           } else {
             // too much
             break;
@@ -213,7 +213,7 @@ void ScanRegistration::subscription_call_back(const sensor_msgs::msg::PointCloud
         }
       }
 
-      //  Ascending order to find the minimum value, to locate edge points
+      //  Ascending order to find the minimum value, to locate flat points
       size_t flat_packed_number = 0;
       for (size_t index = start_point_id; index < end_point_id; ++index) {
         size_t point_index = cloud_points_sort_index_[index];
@@ -224,7 +224,7 @@ void ScanRegistration::subscription_call_back(const sensor_msgs::msg::PointCloud
             break;
           }
           cloud_points_label_[point_index] = PointLabel::Flat;
-          surf_points_cloud_flat->push_back(points_cloud_order->data()[point_index]);
+          surf_points_cloud_flat->push_back(points_cloud_order->points[point_index]);
           cloud_points_neighbor_picked_[point_index] = true;
           for (int l = 1; l <= 5; ++l) {
             float diffX = points_cloud_order->points[point_index + l].x - points_cloud_order->points[point_index + l - 1].x;
@@ -253,7 +253,7 @@ void ScanRegistration::subscription_call_back(const sensor_msgs::msg::PointCloud
       }
       for (size_t index = start_point_id; index < end_point_id; ++index) {
         if (cloud_points_label_[index] == PointLabel::Normal || cloud_points_label_[index] == PointLabel::Flat) {
-          surf_points_cloud_less_flat_temp_for_line->push_back(points_cloud_order->data()[index]);
+          surf_points_cloud_less_flat_temp_for_line->push_back(points_cloud_order->points[index]);
         }
       }
     }
